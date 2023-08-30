@@ -116,6 +116,7 @@ public class NetworkGenerator : Spatial
 			}
 		}
 
+		SimpleTreeGenerator.AddRandomTreesTo(this);
 		LoadAndGenerateEnvironment(shapesFilePath);
 	}
 
