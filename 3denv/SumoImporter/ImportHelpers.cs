@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Xml.Serialization;
 using static Godot.GeometryInstance;
 
@@ -273,6 +274,131 @@ namespace Env3d.SumoImporter
 			bCROSScp = bx * cpy - by * cpx;
 
 			return ((aCROSSbp >= 0.0f) && (bCROSScp >= 0.0f) && (cCROSSap >= 0.0f));
+		}
+	}
+
+	///<summary>A poylgon mesh which represents a ribbon, strap or tape, i.e. a line string with a lateral offset boundary.</summary>
+	public class LineStringRibbon
+	{
+		public Vector3[] LineString { get; private set; }
+		public float HalfWidth { get; private set; }
+		/// boundary vertices are stored in pairs, one pair for each vertex of a base line string
+		public Vector3[] Vertices { get; private set; }
+		public int[] Triangles { get; private set; }
+
+		public LineStringRibbon( Vector3[] lineString, float halfWidth, Vector3 intersectionPointStart, Vector3 intersectionTangentStart, Vector3 intersectionPointEnd, Vector3 intersectionTangentEnd )
+		{
+			this.LineString = lineString;
+			this.HalfWidth = halfWidth;
+			this.Vertices = new Vector3[lineString.Length * 2];
+			this.Triangles = new int[(lineString.Length - 1) * 2 * 3];
+
+			this.GenerateStart(intersectionPointStart, intersectionTangentStart);
+
+			this.GenerateInnerGeometry();
+
+			this.GenerateEnd(intersectionPointEnd, intersectionTangentEnd);
+		}
+
+		///<param name="lineStringPoint1">LineString point that ought to be connected to the intersecting junction area</param>
+		///<param name="lineStringPoint2">LineString point that follows the point that ought to be connected to the intersecting junction area</param>
+		///<param name="intersectionPoint">LineString point that ought to be connected to the intersecting junction area</param>
+		///<param name="intersectionTangent">LineString point that ought to be connected to the intersecting junction area</param>
+		///<return>Points for both corners at one end of the ribbon lineString. Computed relative to an intersection with another shape.</return>
+		private (Vector3, Vector3) GenerateIntersectionPoints(Vector3 lineStringPoint1, Vector3 lineStringPoint2, Vector3 intersectionPoint, Vector3 intersectionTangent)
+		{
+			Vector3 lineStringNormal = lineStringPoint1 - lineStringPoint2;  // ought to face towards intersecting shape
+			Vector3 lateralDirection = lineStringNormal.Cross(Vector3.Up);  // mathematically positive (counter clockwise) direction relative to the intersecting shape
+
+			intersectionTangent = this.HalfWidth * intersectionTangent.Abs() * lateralDirection.Sign();
+
+			return (intersectionPoint + intersectionTangent, intersectionPoint - intersectionTangent);
+		}
+
+		private void GenerateStart(Vector3 intersectionPoint, Vector3 intersectionTangent)
+		{
+			(this.Vertices[0], this.Vertices[1]) =
+					this.GenerateIntersectionPoints(this.LineString.First(), this.LineString[1], intersectionPoint, intersectionTangent);
+		}
+
+		private void GenerateEnd(Vector3 intersectionPoint, Vector3 intersectionTangent)
+		{
+			var vertices = this.Vertices;
+			var lineString = this.LineString;
+
+			(vertices[vertices.Length - 1], vertices[vertices.Length - 2]) =
+					this.GenerateIntersectionPoints(lineString.Last(), lineString[lineString.Length - 2], intersectionPoint, intersectionTangent);
+		}
+
+		private void GenerateInnerGeometry()
+		{
+			var vertices = this.Vertices;
+			var triangles = this.Triangles;
+
+			triangles[0] = 1;
+			triangles[1] = 0;
+			triangles[2] = 2;
+			triangles[3] = 1;
+			triangles[4] = 2;
+			triangles[5] = 3;
+
+			for (int i = 1; i < this.LineString.Length - 1; i++)
+			{
+				triangles[i * 6 + 0] = i * 2 + 1;
+				triangles[i * 6 + 1] = i * 2 + 0;
+				triangles[i * 6 + 2] = i * 2 + 2;
+				triangles[i * 6 + 3] = i * 2 + 1;
+				triangles[i * 6 + 4] = i * 2 + 2;
+				triangles[i * 6 + 5] = i * 2 + 3;
+
+				(vertices[2*i], vertices[2*i+1]) = this.GenerateInnerPair(i);
+			}
+		}
+
+		///<param name="index">in range of 1 to this.LineString.Length -1 </param>
+		private (Vector3, Vector3) GenerateInnerPair_Old(int index)
+		{
+			Vector3 lastDirection = this.LineString[index - 1] - this.LineString[index];
+			Vector3 nextDirection = this.LineString[index + 1] - this.LineString[index];
+
+			float lastLength = lastDirection.Length();
+			float nextLength = nextDirection.Length();
+
+			float lastFactor = 1, nextFactor = 1;
+
+			if (nextLength > lastLength)
+			{
+				nextFactor = lastLength / nextLength;
+			}
+			else
+			{
+				lastFactor = nextLength / lastLength;
+			}
+
+			Vector3 direction =  lastDirection * lastFactor - nextFactor * nextDirection;
+			Vector3 rightVector = direction.Cross(Vector3.Up).Normalized() * this.HalfWidth;
+
+			return (
+					ImportHelpers.LineIntersection2D(this.Vertices[(index - 1) * 2], lastDirection, this.LineString[index], rightVector),
+					ImportHelpers.LineIntersection2D(this.Vertices[(index - 1) * 2 + 1], lastDirection, this.LineString[index], rightVector)
+			);
+		}
+
+		private (Vector3, Vector3) GenerateInnerPair(int index)
+		{
+			var lineString = this.LineString;
+			var lastDirection = lineString[index - 1] - lineString[index];  // need to choose orientation to be consistent with the one that generated the starting corners
+			var nextDirection = lineString[index] - lineString[index + 1];
+			//GD.Print($"lastDirection {lastDirection}, {lastDirection.Normalized()} nextDirection {nextDirection}, {nextDirection.Normalized()}");
+
+			var bisectrix = lastDirection.Normalized() + nextDirection.Normalized();
+			var lateralBisectrix = bisectrix.Cross(Vector3.Up).Normalized();  // = lastDirection.Normalized() + nextDirection.Normalized() + lastLateralDiretion + nextLateralDirection;
+			var lateralDirection = lastDirection.Cross(Vector3.Up).Normalized();   // one unit of lateral direction ...
+			//GD.Print($"bisectrix {bisectrix} halfWidth {this.HalfWidth}");
+			//GD.Print($"lateralDirection {lateralDirection}");
+			var bisectrixProjection = this.HalfWidth  *  lateralBisectrix /  lateralBisectrix.Dot( lateralDirection );   // ... is projected onto the lateral bisectrix direction
+			
+			return ( lineString[index] + bisectrixProjection, lineString[index] - bisectrixProjection );
 		}
 	}
 }

@@ -4,6 +4,7 @@ using Env3d.SumoImporter.NetFileComponents;
 using System.Collections.Generic;
 using Env3d.SumoImporter;
 using static Godot.GeometryInstance;
+using System.Linq;
 
 /// <summary>
 /// Class which generates all environment objects from given SUMO files
@@ -422,8 +423,7 @@ public class NetworkGenerator : Spatial
 	private void AddLane(in NetFileLane lane, in NetFileJunction junctionTo, in NetFileJunction junctionFrom)
 	{
 		float laneWidthPadding = 0.0f;
-		float laneWidth = lane.Width * 0.5f + laneWidthPadding;
-		
+	
 		Vector3[] laneShape = lane.Shape;
 		if (laneShape.Length < 2)
 		{
@@ -431,59 +431,11 @@ public class NetworkGenerator : Spatial
 			return;
 		}
 
-		Vector3[] vertices = new Vector3[laneShape.Length * 2];
+		lane.ComputeLaneGeometry(junctionTo, junctionFrom, laneShape, laneWidthPadding);
+		var vertices = lane.Vertices;
+		var triangles = lane.Triangles;
+
 		Vector2[] uvs = new Vector2[vertices.Length];
-
-		int[] triangles = new int[(laneShape.Length - 1) * 2 * 3];
-		//add start points
-		AddLaneEnds(junctionFrom, laneShape[0], laneShape[1], laneWidth, true, ref vertices);
-
-		triangles[0] = 1;
-		triangles[1] = 0;
-		triangles[2] = 2;
-		triangles[3] = 1;
-		triangles[4] = 2;
-		triangles[5] = 3;
-
-
-		//Build road between start and end
-		for (int i = 1; i < laneShape.Length - 1; i++)
-		{
-			triangles[i * 6] = i * 2 + 1;
-			triangles[i * 6 + 1] = i * 2;
-			triangles[i * 6 + 2] = i * 2 + 2;
-			triangles[i * 6 + 3] = i * 2 + 1;
-			triangles[i * 6 + 4] = i * 2 + 2;
-			triangles[i * 6 + 5] = i * 2 + 3;
-
-			Vector3 lastDirection = laneShape[i - 1] - laneShape[i];
-			Vector3 nextDirection = laneShape[i + 1] - laneShape[i];
-
-			float lastLength = lastDirection.Length();
-			float nextLength = nextDirection.Length();
-
-			float lastFactor = 1, nextFactor = 1;
-
-			if (nextLength > lastLength)
-			{
-				nextFactor = lastLength / nextLength;
-			}
-			else
-			{
-				lastFactor = nextLength / lastLength;
-			}
-
-			Vector3 direction =  lastDirection * lastFactor - nextFactor * nextDirection;
-			Vector3 rightVector = direction.Cross(Vector3.Up).Normalized() * laneWidth;
-
-			vertices[i * 2] = ImportHelpers.LineIntersection2D(vertices[(i - 1) * 2], lastDirection, laneShape[i], rightVector);
-			vertices[i * 2 + 1] = ImportHelpers.LineIntersection2D(vertices[(i - 1) * 2 + 1], lastDirection, laneShape[i], rightVector);
-
-		}
-
-		//Add End Points
-		AddLaneEnds(junctionTo, laneShape[laneShape.Length - 1], laneShape[laneShape.Length - 2], laneWidth, false, ref vertices);
-
 
 		float distanceLeft = 0;
 		float distanceRight = 0;
@@ -502,51 +454,6 @@ public class NetworkGenerator : Spatial
 		float[] tangents;
 		ImportHelpers.CalculateNormals(vertices, triangles, uvs, out normals, out tangents);
 		ImportHelpers.AddMesh(this, vertices, normals, triangles, tangents, uvs, streetMaterial, castShadow: ShadowCastingSetting.Off);
-	}
-	
-	/// <summary>
-	/// Used to add the start and end vertices of a lane to the given vertices array.
-	/// Alligns the end correctly with the connecting junction
-	/// </summary>
-	/// <param name="junction"></param>
-	/// <param name="shapePoint1"></param>
-	/// <param name="shapePoint2"></param>
-	/// <param name="laneWidth"></param>
-	/// <param name="bIsStart"></param>
-	/// <param name="vertices"></param>
-	private void AddLaneEnds(in NetFileJunction junction, Vector3 shapePoint1, Vector3 shapePoint2, float laneWidth, bool bIsStart, ref Vector3[] vertices)
-	{
-		int shapeLength = junction.Shape.Length;
-		int bestIndex = 0;
-		Vector3 junctionIntersection = Vector3.Zero;
-
-		float bestDistance = float.MaxValue;
-
-		for (int i = 0; i < shapeLength; i++)
-		{
-			Vector3 testPoint;
-			bool isInSegment = ImportHelpers.ClosestPointOnSegment(shapePoint1, junction.Shape[i], junction.Shape[(i + 1) % shapeLength], out testPoint);
-			float distanceSq = (testPoint - shapePoint1).LengthSquared();
-			if (distanceSq < bestDistance)
-			{
-				bestIndex = i;
-				bestDistance = distanceSq;
-
-				
-				junctionIntersection = isInSegment ? testPoint : shapePoint1;
-				
-			}
-		}
-
-		Vector3 rightVector = (junction.Shape[bestIndex] - junction.Shape[(bestIndex + 1) % shapeLength]).Normalized() * laneWidth;
-
-		Vector3 fDirection = (shapePoint1 - shapePoint2).Cross(Vector3.Up);
-
-		rightVector = rightVector.Abs() * fDirection.Sign();
-		
-
-		vertices[bIsStart ? 0 : vertices.Length - 1] = junctionIntersection + rightVector;
-		vertices[bIsStart ? 1 : vertices.Length - 2] = junctionIntersection - rightVector;
 	}
 
 	/// <summary>
