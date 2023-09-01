@@ -141,6 +141,35 @@ namespace Env3d.SumoImporter
 			return StartA + DirectionA * factor;
 		}
 
+
+		public static Vector3 ComputeDistanceToLineSegement(Vector3 point, Vector3 lineA, Vector3 lineB)
+		{
+			var normal = lineB - lineA;
+			if (lineA.Dot(normal) > point.Dot(normal)) return lineA - point;
+			if (lineB.Dot(-normal) > point.Dot(-normal)) return lineB - point;
+			return lineA  -  ((lineA - point).Dot(normal) / normal.LengthSquared()  * normal  + point);
+		}
+
+		///<return>Whether a ray into positive x direction hits a line segment or not.</return>
+		public static bool IsXRayIntersectingLineSegment(Vector3 lineA, Vector3 lineB, Vector3? origin0 = null)
+		{
+			var origin = origin0 ?? Vector3.Zero;
+
+			if ( !IsXAxisIntersectingLineSegment(lineA, lineB, origin.z) )
+				return false;
+
+			var intersectionDistance = lineA.x + ( (lineB.x - lineA.x) * (origin.z - lineA.z) / (lineB.z - lineA.z) ) ;
+			return intersectionDistance >= origin.x;
+			// generalized into any 2d direction:
+			// replace `.x` by `.Dot(rayDirection)` where `rayDirection` is a normalized XZ vector and `.z` by `.Dot(normal)` where `var normal = rayDirection.Cross(Vector3.Up)`
+			// the intersection point is  origin + rayDirection * (intersectionDistance - origin.Dot(rayIntersection))
+		}
+
+		private static bool IsXAxisIntersectingLineSegment(Vector3 p1, Vector3 p2, float zOffset = 0f)
+		{
+			return p1.z <= zOffset ? p2.z >= zOffset : p2.z <= zOffset;   // min <= zOffset <= max;
+		}
+
 		public static void AddMesh(Spatial parent, Vector3[] vertices, Vector3[] normals, int[] triangles, float[] tangents, Vector2[] uvs, Material material, bool bCreateCollision = true, ShadowCastingSetting castShadow = ShadowCastingSetting.On)
 		{
 			var array_mesh = new ArrayMesh();

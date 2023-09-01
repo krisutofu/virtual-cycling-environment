@@ -117,7 +117,7 @@ public class NetworkGenerator : Spatial
 			}
 		}
 
-		SimpleTreeGenerator.AddRandomTreesTo(this);
+		new SimpleTreeGenerator(this, random).AddRandomTreesTo(new List<NetFileEdge>(edges.Values), new List<NetFileJunction>(junctions.Values));
 		LoadAndGenerateEnvironment(shapesFilePath);
 	}
 
