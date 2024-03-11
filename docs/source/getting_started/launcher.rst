@@ -21,7 +21,7 @@ To try this out with an example, go to the root folder of your VCE installation 
     scripts/vce-launcher.py \
         --container \
         --prepare-only \
-        networks/paderborn-north/with-minimap-and-bike-interface.launcher.toml
+        scenarios/paderborn-north/with-minimap-and-bike-interface.launcher.toml
 
 Here, ``--container`` means that each component will be launched using the Apptainer image ``vce-container.sif`` that ``scripts/vce-install-container.sh`` downloads automatically.
 
